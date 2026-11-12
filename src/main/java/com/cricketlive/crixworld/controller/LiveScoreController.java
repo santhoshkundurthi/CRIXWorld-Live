@@ -49,4 +49,10 @@ public class LiveScoreController {
     public LiveScorecardResponse getLiveScorecards() {
         return liveScoreService.getLiveScorecards();
     }
+
+    @GetMapping(value = "/livescores", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Get live scores", description = "Returns current live fixtures without included relationships.")
+    public String getLiveScores() {
+        return liveScoreService.getLiveScoresWithoutIncludes();  // Changed this line
+    }
 }

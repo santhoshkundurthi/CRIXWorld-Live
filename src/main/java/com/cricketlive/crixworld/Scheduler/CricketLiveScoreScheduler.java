@@ -28,6 +28,6 @@ public class CricketLiveScoreScheduler {
         }
 
         log.info("Fetching live cricket scores...");
-        service.getLiveScores();
+        service.getLiveScoresWithoutIncludes();
     }
 }
