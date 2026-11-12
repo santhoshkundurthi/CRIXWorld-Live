@@ -1,0 +1,33 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: crix-cricket-data-service
+
+sportmonks:
+  base-url: https://cricket.sportmonks.com/api/v2.0
+  api-token: ${SPORTMONKS_API_TOKEN:}
+
+logging:
+  level:
+    com.cricketlive.crixworld: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  info:
+    env:
+      enabled: true
+
+info:
+  app:
+    name: Crixworld Cricket API
+    description: Live cricket scores and fixture details
+    version: 0.0.1-SNAPSHOT
