@@ -2,13 +2,9 @@ package com.cricketlive.crixworld.service;
 
 import com.cricketlive.crixworld.client.SportmonksClient;
 import com.cricketlive.crixworld.dto.LiveScorecardResponse;
-import com.cricketlive.crixworld.dto.LiveScorecardResponse.Batter;
-import com.cricketlive.crixworld.dto.LiveScorecardResponse.Bowler;
-import com.cricketlive.crixworld.dto.LiveScorecardResponse.Innings;
-import com.cricketlive.crixworld.dto.LiveScorecardResponse.Match;
-import com.cricketlive.crixworld.dto.LiveScorecardResponse.Team;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -27,56 +23,31 @@ public class LiveScoreService {
         this.client = client;
     }
 
-    public String getLiveScores() {
-
-        String include = String.join(",",
-                "runs",
-                "batting",
-                "bowling",
-                "balls",
-                "lineup",
-                "venue",
-                "tosswon",
-                "localteam",
-                "visitorteam"
-        );
-
+    @Cacheable(value = "liveScores", key = "#include != null ? #include : 'default'", unless = "#result == null")
+    public String getLiveScores(String include) {
         return client.getLiveScores(include);
     }
 
+    @Cacheable(value = "liveScores", key = "'no-include'", unless = "#result == null")
     public String getLiveScoresWithoutIncludes() {
         return client.getLiveScores();
     }
 
+    @Cacheable(value = "liveScores", key = "'detailed'", unless = "#result == null")
     public String getDetailedLiveScores() {
         String include = String.join(",",
-                "balls",
-                "runs",
-                "bowling",
-                "batting",
-                "scoreboards",
-                "firstumpire",
-                "secondumpire",
-                "manofmatch",
-                "tosswon",
-                "manofseries",
-                "visitorTeam"
+                "balls", "runs", "bowling", "batting", "scoreboards",
+                "firstumpire", "secondumpire", "manofmatch", "tosswon",
+                "manofseries", "visitorTeam"
         );
-
         return client.getLiveScores(include);
     }
 
     public LiveScorecardResponse getLiveScorecards() {
         String include = String.join(",",
-                "runs",
-                "batting",
-                "bowling",
-                "scoreboards",
-                "localteam",
-                "visitorteam",
-                "tosswon"
+                "runs", "batting", "bowling", "scoreboards",
+                "localteam", "visitorteam", "tosswon"
         );
-
         return mapLiveScorecards(client.getLiveScores(include));
     }
 
@@ -86,13 +57,11 @@ public class LiveScoreService {
             if (root.hasNonNull("status") && "unavailable".equals(root.path("status").asText())) {
                 throw new IllegalStateException(root.path("message").asText("Live score service is unavailable"));
             }
-
             JsonNode data = root.path("data");
             if (!data.isArray()) {
                 throw new IllegalStateException("Sportmonks live score response did not contain a data array");
             }
-
-            List<Match> matches = new ArrayList<>();
+            List<LiveScorecardResponse.Match> matches = new ArrayList<>();
             for (JsonNode fixture : data) {
                 matches.add(mapMatch(fixture));
             }
@@ -102,21 +71,19 @@ public class LiveScoreService {
         }
     }
 
-    private Match mapMatch(JsonNode fixture) {
-        Team localTeam = mapTeam(firstPresent(fixture, "localteam", "localTeam"));
-        Team visitorTeam = mapTeam(firstPresent(fixture, "visitorteam", "visitorTeam"));
-        List<Innings> innings = new ArrayList<>();
-
+    private LiveScorecardResponse.Match mapMatch(JsonNode fixture) {
+        LiveScorecardResponse.Team localTeam = mapTeam(firstPresent(fixture, "localteam", "localTeam"));
+        LiveScorecardResponse.Team visitorTeam = mapTeam(firstPresent(fixture, "visitorteam", "visitorTeam"));
+        List<LiveScorecardResponse.Innings> innings = new ArrayList<>();
         JsonNode runs = fixture.path("runs");
         if (runs.isArray()) {
             for (JsonNode run : runs) {
                 String scoreboard = text(run, "scoreboard");
                 Long battingTeamId = longValue(run, "team_id");
                 int legalBalls = legalBalls(text(run, "overs"));
-                List<Batter> batters = mapBatters(fixture.path("batting"), scoreboard, battingTeamId);
-                List<Bowler> bowlers = mapBowlers(fixture.path("bowling"), scoreboard, battingTeamId);
-
-                innings.add(new Innings(
+                List<LiveScorecardResponse.Batter> batters = mapBatters(fixture.path("batting"), scoreboard, battingTeamId);
+                List<LiveScorecardResponse.Bowler> bowlers = mapBowlers(fixture.path("bowling"), scoreboard, battingTeamId);
+                innings.add(new LiveScorecardResponse.Innings(
                         integer(run, "inning"),
                         scoreboard,
                         battingTeamId,
@@ -131,9 +98,8 @@ public class LiveScoreService {
                 ));
             }
         }
-
         JsonNode toss = fixture.path("tosswon");
-        return new Match(
+        return new LiveScorecardResponse.Match(
                 longValue(fixture, "id"),
                 matchName(localTeam, visitorTeam),
                 text(fixture, "type"),
@@ -150,146 +116,104 @@ public class LiveScoreService {
         );
     }
 
-    private List<Batter> mapBatters(JsonNode batting, String scoreboard, Long teamId) {
-        List<Batter> batters = new ArrayList<>();
-        if (!batting.isArray()) {
-            return batters;
-        }
-
-        for (JsonNode batter : batting) {
-            if (same(text(batter, "scoreboard"), scoreboard)
-                    && same(longValue(batter, "team_id"), teamId)) {
-                batters.add(new Batter(
-                        longValue(batter, "player_id"),
-                        integer(batter, "score"),
-                        integer(batter, "ball"),
-                        integer(batter, "four_x"),
-                        integer(batter, "six_x"),
-                        decimal(batter, "rate"),
-                        nullableBoolean(batter, "active")
-                ));
+    private List<LiveScorecardResponse.Batter> mapBatters(JsonNode batting, String scoreboard, Long teamId) {
+        List<LiveScorecardResponse.Batter> batters = new ArrayList<>();
+        if (batting.isArray()) {
+            for (JsonNode b : batting) {
+                if (longValue(b, "team_id") != null && longValue(b, "team_id").equals(teamId)
+                        && scoreboard.equals(text(b, "scoreboard"))) {
+                    batters.add(new LiveScorecardResponse.Batter(
+                            longValue(b, "player_id"),
+                            text(b, "player_name"),
+                            integer(b, "runs"),
+                            integer(b, "balls"),
+                            integer(b, "fours"),
+                            integer(b, "sixes"),
+                            text(b, "dismissal")
+                    ));
+                }
             }
         }
         return batters;
     }
 
-    private List<Bowler> mapBowlers(JsonNode bowling, String scoreboard, Long battingTeamId) {
-        List<Bowler> bowlers = new ArrayList<>();
-        if (!bowling.isArray()) {
-            return bowlers;
-        }
-
-        for (JsonNode bowler : bowling) {
-            if (same(text(bowler, "scoreboard"), scoreboard)
-                    && !same(longValue(bowler, "team_id"), battingTeamId)) {
-                bowlers.add(new Bowler(
-                        longValue(bowler, "player_id"),
-                        text(bowler, "overs"),
-                        integer(bowler, "medians"),
-                        integer(bowler, "runs"),
-                        integer(bowler, "wickets"),
-                        integer(bowler, "wide"),
-                        integer(bowler, "noball"),
-                        decimal(bowler, "rate")
-                ));
+    private List<LiveScorecardResponse.Bowler> mapBowlers(JsonNode bowling, String scoreboard, Long teamId) {
+        List<LiveScorecardResponse.Bowler> bowlers = new ArrayList<>();
+        if (bowling.isArray()) {
+            for (JsonNode b : bowling) {
+                if (longValue(b, "team_id") != null && !longValue(b, "team_id").equals(teamId)
+                        && scoreboard.equals(text(b, "scoreboard"))) {
+                    bowlers.add(new LiveScorecardResponse.Bowler(
+                            longValue(b, "player_id"),
+                            text(b, "player_name"),
+                            text(b, "overs"),
+                            integer(b, "maidens"),
+                            integer(b, "runs"),
+                            integer(b, "wickets"),
+                            text(b, "economy")
+                    ));
+                }
             }
         }
         return bowlers;
     }
 
-    private Team mapTeam(JsonNode team) {
-        if (team == null || team.isMissingNode() || team.isNull()) {
-            return null;
-        }
-        return new Team(
+    private LiveScorecardResponse.Team mapTeam(JsonNode team) {
+        return new LiveScorecardResponse.Team(
                 longValue(team, "id"),
                 text(team, "name"),
-                text(team, "code"),
-                text(team, "image_path")
+                text(team, "short_code"),
+                text(team, "logo")
         );
     }
 
     private JsonNode firstPresent(JsonNode node, String... names) {
         for (String name : names) {
-            JsonNode value = node.path(name);
-            if (!value.isMissingNode() && !value.isNull()) {
-                return value;
-            }
+            JsonNode child = node.path(name);
+            if (!child.isMissingNode()) return child;
         }
-        return null;
-    }
-
-    private String matchName(Team localTeam, Team visitorTeam) {
-        if (localTeam == null || visitorTeam == null) {
-            return null;
-        }
-        return localTeam.name() + " vs " + visitorTeam.name();
-    }
-
-    private String teamName(Long teamId, Team localTeam, Team visitorTeam) {
-        if (localTeam != null && same(teamId, localTeam.id())) {
-            return localTeam.name();
-        }
-        if (visitorTeam != null && same(teamId, visitorTeam.id())) {
-            return visitorTeam.name();
-        }
-        return null;
-    }
-
-    private int legalBalls(String overs) {
-        if (overs == null || overs.isBlank()) {
-            return 0;
-        }
-        try {
-            BigDecimal value = new BigDecimal(overs);
-            int wholeOvers = value.intValue();
-            int balls = value.subtract(BigDecimal.valueOf(wholeOvers))
-                    .movePointRight(1)
-                    .intValue();
-            if (balls < 0 || balls > 5) {
-                return 0;
-            }
-            return wholeOvers * 6 + balls;
-        } catch (NumberFormatException exception) {
-            return 0;
-        }
-    }
-
-    private Double runRate(Integer score, int legalBalls) {
-        if (score == null || legalBalls == 0) {
-            return null;
-        }
-        return BigDecimal.valueOf(score * 6.0 / legalBalls)
-                .setScale(2, RoundingMode.HALF_UP)
-                .doubleValue();
+        return node;
     }
 
     private String text(JsonNode node, String field) {
         JsonNode value = node.path(field);
-        return value.isMissingNode() || value.isNull() ? null : value.asText();
-    }
-
-    private Long longValue(JsonNode node, String field) {
-        JsonNode value = node.path(field);
-        return value.isNumber() ? value.longValue() : null;
+        return value.isMissingNode() || value.isNull() ? "" : value.asText();
     }
 
     private Integer integer(JsonNode node, String field) {
         JsonNode value = node.path(field);
-        return value.isNumber() ? value.intValue() : null;
+        return value.isMissingNode() || value.isNull() ? null : value.asInt();
     }
 
-    private Double decimal(JsonNode node, String field) {
+    private Long longValue(JsonNode node, String field) {
         JsonNode value = node.path(field);
-        return value.isNumber() ? value.doubleValue() : null;
+        return value.isMissingNode() || value.isNull() ? null : value.asLong();
     }
 
-    private Boolean nullableBoolean(JsonNode node, String field) {
-        JsonNode value = node.path(field);
-        return value.isBoolean() ? value.booleanValue() : null;
+    private int legalBalls(String overs) {
+        if (overs == null || overs.isBlank()) return 0;
+        String[] parts = overs.split("\\.");
+        int fullOvers = Integer.parseInt(parts[0]);
+        int extraBalls = parts.length > 1 ? Integer.parseInt(parts[1]) : 0;
+        return (fullOvers * 6) + extraBalls;
     }
 
-    private boolean same(Object left, Object right) {
-        return left == null ? right == null : left.equals(right);
+    private BigDecimal runRate(Integer score, int legalBalls) {
+        if (score == null || legalBalls == 0) return BigDecimal.ZERO;
+        return BigDecimal.valueOf(score)
+                .multiply(BigDecimal.valueOf(6))
+                .divide(BigDecimal.valueOf(legalBalls), 2, RoundingMode.HALF_UP);
+    }
+
+    private String matchName(LiveScorecardResponse.Team local, LiveScorecardResponse.Team visitor) {
+        String localName = local != null && local.name() != null ? local.name() : "TBA";
+        String visitorName = visitor != null && visitor.name() != null ? visitor.name() : "TBA";
+        return localName + " vs " + visitorName;
+    }
+
+    private String teamName(Long teamId, LiveScorecardResponse.Team local, LiveScorecardResponse.Team visitor) {
+        if (local != null && teamId != null && teamId.equals(local.id())) return local.name();
+        if (visitor != null && teamId != null && teamId.equals(visitor.id())) return visitor.name();
+        return "Unknown";
     }
 }

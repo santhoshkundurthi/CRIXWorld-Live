@@ -4,6 +4,20 @@ server:
 spring:
   application:
     name: crix-cricket-data-service
+  cache:
+    type: caffeine
+    caffeine:
+      spec: maximumSize=500,expireAfterWrite=30s
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      lettuce:
+        pool:
+          max-active: 200
+          max-idle: 50
+          min-idle: 10
 
 sportmonks:
   base-url: https://cricket.sportmonks.com/api/v2.0
