@@ -26,7 +26,6 @@ public class CricketLiveScoreScheduler {
             log.info("Skipping scheduled live score refresh because the Sportmonks API token is not configured.");
             return;
         }
-
         log.info("Fetching live cricket scores...");
         service.getLiveScoresWithoutIncludes();
     }
